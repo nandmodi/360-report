@@ -58,11 +58,14 @@
   .btn-reset:hover{background:var(--bg);}
   #vinSearchWrap{position:relative;align-self:flex-end;}
   #vinSearchToggle{display:flex;align-items:center;gap:6px;}
-  .vin-search-box{position:absolute;top:calc(100% + 6px);right:0;z-index:50;background:var(--surface);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px var(--shadow-lg);padding:6px;display:none;align-items:center;gap:4px;}
+  .vin-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:none;}
+  .vin-backdrop.show{display:block;}
+  .vin-search-box{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:61;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 24px 70px var(--shadow-lg);padding:18px;display:none;flex-direction:column;gap:10px;width:min(460px,92vw);}
   .vin-search-box.show{display:flex;}
-  .vin-search-box{align-items:flex-start !important;}
-  .vin-search-box textarea{border:none;outline:none;background:transparent;font-size:13px;width:360px;padding:6px 4px;resize:vertical;min-height:34px;max-height:120px;font-family:inherit;}
-  .vin-search-submit{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;flex-shrink:0;margin-top:2px;}
+  .vin-box-head{display:flex;justify-content:space-between;align-items:center;}
+  .vin-box-head span:first-child{font-size:15px;font-weight:600;color:var(--ink);}
+  .vin-search-box textarea{border:1px solid var(--line);outline:none;background:var(--surface-2);font-size:13px;width:100%;padding:9px 10px;resize:vertical;min-height:40px;max-height:140px;font-family:inherit;border-radius:8px;box-sizing:border-box;}
+  .vin-search-submit{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer;width:100%;}
   .vin-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
   .vin-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--ink-2);background:var(--bg);position:sticky;top:0;}
   .vin-table td{padding:8px 12px;border-top:0.5px solid var(--line);}
@@ -792,12 +795,16 @@
         Find VIN
       </button>
       <div class="vin-search-box" id="vinSearchBox">
-        <textarea id="vinSearchInput" rows="1" placeholder="VIN/MediaID/DealerVinId"></textarea>
+        <div class="vin-box-head">
+          <span>Find VIN</span>
+          <span class="vin-search-close" id="vinSearchClose">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+          </span>
+        </div>
+        <textarea id="vinSearchInput" rows="1" placeholder="VIN / SKU / Spin ID / MediaID / DealerVinId"></textarea>
         <button class="vin-search-submit" id="vinSearchSubmit" type="button">Search</button>
-        <span class="vin-search-close" id="vinSearchClose">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
-        </span>
       </div>
+      <div class="vin-backdrop" id="vinBackdrop"></div>
     </div>
     <button class="btn-reset" id="resetBtn">Reset</button>
   </div>
@@ -3550,16 +3557,15 @@ function refreshMsTriggers(){ MS_INSTANCES.forEach(ms => ms.refreshTrigger()); }
 // RESET FILTER
 // ─────────────────────────────────────────────────────────────
 // ── Find VIN / spin_sku_id / spin_id / mediaID / dealerVinId ──
-$('vinSearchToggle').addEventListener('click', ()=>{
-  const box = $('vinSearchBox');
-  box.classList.toggle('show');
-  if (box.classList.contains('show')) $('vinSearchInput').focus();
-});
-$('vinSearchClose').addEventListener('click', ()=> $('vinSearchBox').classList.remove('show'));
-$('vinSearchSubmit').addEventListener('click', ()=> doVinSearch($('vinSearchInput').value));
+function openVinBox(){ $('vinSearchBox').classList.add('show'); $('vinBackdrop').classList.add('show'); $('vinSearchInput').focus(); }
+function closeVinBox(){ $('vinSearchBox').classList.remove('show'); $('vinBackdrop').classList.remove('show'); }
+$('vinSearchToggle').addEventListener('click', ()=>{ $('vinSearchBox').classList.contains('show') ? closeVinBox() : openVinBox(); });
+$('vinSearchClose').addEventListener('click', closeVinBox);
+$('vinBackdrop').addEventListener('click', closeVinBox);
+$('vinSearchSubmit').addEventListener('click', ()=>{ doVinSearch($('vinSearchInput').value); closeVinBox(); });
 $('vinSearchInput').addEventListener('keydown', e=>{
-  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doVinSearch($('vinSearchInput').value); }
-  if (e.key === 'Escape'){ $('vinSearchBox').classList.remove('show'); }
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doVinSearch($('vinSearchInput').value); closeVinBox(); }
+  if (e.key === 'Escape'){ closeVinBox(); }
 });
 
 // Accepts one value or several (comma / new-line separated). Matches on
@@ -3592,30 +3598,30 @@ function doVinSearch(raw){
 // and a formatter. Columns are shown even if blank for most rows (so the
 // table stays consistent record-to-record); truly absent fields show "—".
 const VIN_ALL_COLUMNS = [
-  ['vin',  'VIN',            v => v],
-  ['sku',  'SKU',            v => v],
-  ['fs',   'Status',         null], // rendered via statusBadge, not cell()
-  ['ent',  'Enterprise',     v => v],
-  ['tm',   'Team',           v => v],
-  ['seg',  'Segment',        v => v],
-  ['csCol','CS',             v => v],
-  ['ob',   'OB',             v => v],
-  ['cs',   'CRM status',     v => v],
-  ['c',    'Created on',     v => v ? fmtDate(v) : null],
-  ['u',    'Final time',     v => v ? fmtDate(v) : null],
-  ['tt',   'Input type',     v => v],
-  ['vm',   'Platform',       v => v],
-  ['sid',  'Spin ID',        v => v],
-  ['vid',  'Media ID',       v => v],
-  ['dvid', 'Dealer VIN ID',  v => v],
-  ['qc',   'QC user',        v => v],
-  ['tat',  'TAT (hrs)',      v => (typeof v==='number') ? v.toFixed(2) : null],
-  ['e2e',  'E2E TAT (hrs)',  v => (typeof v==='number') ? v.toFixed(2) : null],
-  ['sla',  'SLA',            v => v===1 ? 'Within' : (v===0 ? 'Out' : null)],
-  ['rej',  'Failure reason', v => v],
-  ['isv',  'Issues',         v => v],
-  ['me',   'Manual editing', v => v===1 ? 'Yes' : null],
-  ['aq',   'Assisted by QC', v => v===1 ? 'Yes' : null],
+  ['vid',  'mediaId',            v=>v],
+  ['c',    'createdAt',          v=>v],
+  ['pat',  'processedAt',        v=>v],
+  ['enid', 'enterpriseId',       v=>v],
+  ['ent',  'enterprise_name',    v=>v],
+  ['seg',  'customer_segment',   v=>v],
+  ['tmid', 'teamId',             v=>v],
+  ['tm',   'team_name',          v=>v],
+  ['csCol','CS',                 v=>v],
+  ['ob',   'OB',                 v=>v],
+  ['vin',  'vinName',            v=>v],
+  ['dvid', 'dealerVinId',        v=>v],
+  ['sku',  'spin_sku_id',        v=>v],
+  ['vm',   'fd.platform',        v=>v],
+  ['src',  'fd.source',          v=>v],
+  ['tt',   'input_type',         v=>v],
+  ['rej',  'failure_reason',     v=>v],
+  ['fs',   'final_status',       v=>v],
+  ['isv',  'issues_by_severity', v=>v],
+  ['u',    'final_time',         v=>v],
+  ['sid',  'ss.spin_id',         v=>v],
+  ['cs',   'crm_status',         v=>v],
+  ['me',   'manual_editing',     v=>v],
+  ['mc',   'manual_correction',  v=>v],
 ];
 
 function openVinResultsTable(records, notFound){
@@ -3638,7 +3644,6 @@ function openVinResultsTable(records, notFound){
   const headerHtml = VIN_ALL_COLUMNS.map(([key,label]) => `<th>${esc(label)}</th>`).join('');
   const rowsHtml = records.map(r => {
     const cellsHtml = VIN_ALL_COLUMNS.map(([key,label,fmt]) => {
-      if (key === 'fs') return `<td>${statusBadge(r.fs)}</td>`;
       const raw = r[key];
       const val = fmt ? fmt(raw) : raw;
       return `<td>${cell(val)}</td>`;
