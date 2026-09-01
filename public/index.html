@@ -111,8 +111,7 @@
   /* Hide filters that don't apply in the performance view */
   body.view-performance #msPocObWrap,
   body.view-performance #msPocCsWrap,
-  body.view-performance #msVerifiedWrap,
-  body.view-performance #msSlaWrap{display:none;}
+  body.view-performance #msVerifiedWrap{display:none;}
 
   /* User picker — large, prominent */
   .user-picker-block{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:22px;display:flex;flex-wrap:wrap;align-items:center;gap:18px;}
@@ -663,9 +662,9 @@
           <button class="dp-preset" data-p="this_week">This week</button>
           <button class="dp-preset" data-p="last_week">Last week</button>
           <div class="dp-sec" style="margin-top:6px">Months</div>
-          <button class="dp-preset sel" data-p="this_month">This month</button>
+          <button class="dp-preset" data-p="this_month">This month</button>
           <button class="dp-preset" data-p="last_month">Last month</button>
-          <button class="dp-preset" data-p="last_30">Last 30 days</button>
+          <button class="dp-preset sel" data-p="last_30">Last 30 days</button>
           <button class="dp-preset" data-p="last_3_months">Last 3 months</button>
           <div class="dp-sec" style="margin-top:6px">Custom</div>
           <button class="dp-preset" data-p="custom">Custom range</button>
@@ -759,20 +758,6 @@
           <button class="ms-action muted" type="button" data-act="none" data-ms="verified">Clear all</button>
         </div>
         <div class="ms-list" id="msVerifiedList"></div>
-      </div>
-    </div>
-    <div class="f-group ms-wrap" id="msSlaWrap">
-      <label class="f-label">SLA</label>
-      <div class="ms-trigger compact" id="msSlaTrigger" tabindex="0">
-        <span class="ms-text" id="msSlaText">All</span>
-        <svg class="ms-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="2,4 6,8 10,4"/></svg>
-      </div>
-      <div class="ms-panel" id="msSlaPanel">
-        <div class="ms-actions">
-          <button class="ms-action" type="button" data-act="all" data-ms="sla">Select all</button>
-          <button class="ms-action muted" type="button" data-act="none" data-ms="sla">Clear all</button>
-        </div>
-        <div class="ms-list" id="msSlaList"></div>
       </div>
     </div>
     <div class="f-group ms-wrap" id="msSegWrap">
@@ -1203,7 +1188,7 @@ const charts = {};
 // Non-null Set means "include only these". Multi-select keeps these in sync.
 // SLA uses the string values 'Within SLA' / 'Out of SLA' inside the Set.
 const F = {
-  preset:'this_month', from:null, to:null,
+  preset:'last_30', from:null, to:null,
   ent:null, team:null,
   user:null,
   verified:null, sla:null, seg:null, rejReason:null,
@@ -3364,7 +3349,6 @@ async function syncFromServer({silent=false, force=false}={}){
     msPocCs.setOptions(sc.csList);
     msPocOb.setOptions(sc.obList);
     msVerified.setOptions(sc.verifiedList);
-    msSla.setOptions(['Within SLA','Out of SLA']);
     msSeg.setOptions(sc.segList);
 
     setLoadProgress(100, 'Done!');
@@ -3525,12 +3509,6 @@ const msVerified = createMultiSelect({
   singularLabel:'status', pluralLabel:'statuses',
   onChange: ()=> setTimeout(()=>refresh(), 0),
 });
-const msSla = createMultiSelect({
-  field:'sla', triggerId:'msSlaTrigger', panelId:'msSlaPanel',
-  textId:'msSlaText', searchId:null, listId:'msSlaList',
-  singularLabel:'SLA state', pluralLabel:'SLA states',
-  onChange: ()=> setTimeout(()=>refresh(), 0),
-});
 
 const msSeg = createMultiSelect({
   field:'seg', triggerId:'msSegTrigger', panelId:'msSegPanel',
@@ -3539,8 +3517,8 @@ const msSeg = createMultiSelect({
   onChange: ()=> setTimeout(()=>refresh(),0),
 });
 
-const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msVerified, msSla, msSeg];
-const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msVerifiedWrap','msSlaWrap','msSegWrap'];
+const MS_INSTANCES = [msEnt, msTeam, msPocCs, msPocOb, msVerified, msSeg];
+const MS_WRAPS = ['msEntWrap','msTeamWrap','msPocCsWrap','msPocObWrap','msVerifiedWrap','msSegWrap'];
 
 // Close any open multi-select on outside click
 document.addEventListener('mousedown', e=>{
@@ -3675,9 +3653,9 @@ function openVinNotFound(query){
 }
 
 $('resetBtn').addEventListener('click', ()=>{
-  const r = presetRange('this_month');
+  const r = presetRange('last_30');
   Object.assign(F, {
-    preset:'this_month', from:r.from, to:r.to,
+    preset:'last_30', from:r.from, to:r.to,
     ent:null, team:null,
     user:null,
     verified:null, sla:null, seg:null, rejReason:null,
@@ -5584,8 +5562,8 @@ bindPerfDrillCells();
 let savedTheme = null; try { savedTheme = localStorage.getItem('opsDash_theme'); } catch(e){}
 if (savedTheme === 'dark') applyTheme(true);
 
-// Set default date filter to This Month
-const r0 = presetRange('this_month');
+// Set default date filter to Last 30 days
+const r0 = presetRange('last_30');
 F.from = r0.from; F.to = r0.to;
 
 renderKpiCards();
