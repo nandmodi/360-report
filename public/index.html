@@ -630,16 +630,6 @@
   <header>
     <div class="brand"><h1>360 Dashboard</h1><span class="tag">QC · Throughput · SLA</span></div>
     <div class="actions">
-      <div class="view-switch" id="viewSwitch">
-        <button data-view="operations" class="sel" title="Operations view">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
-          Operations
-        </button>
-        <button data-view="performance" title="QC Performance view">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
-          QC Performance
-        </button>
-      </div>
       <span class="sync-info" id="syncInfo">—</span>
       <button class="btn-icon" id="editBtn" title="Customize layout">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11.5 1.5l3 3-9 9L2 14l.5-3.5 9-9z"/></svg>
@@ -859,126 +849,6 @@
     </div>
 
 
-    <div class="panel" data-panel="sla" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>SLA performance</h3>
-        </div>
-        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
-          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
-          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
-        </div>
-        <div class="edit-controls" data-panel-ctl="sla"></div>
-      </div>
-      <div class="sla-content">
-        <div class="sla-hidden-block" style="display:none">
-          <div class="sla-cells sla-cells-slim">
-            <div class="sla-cell sla-in sla-cell-slim" id="slaCellIn" tabindex="0" role="button">
-              <div class="sla-num green" id="slaNumIn">—</div>
-              <div class="sla-pct" id="slaPctIn">—%</div>
-              <div class="sla-cell-label">Within SLA</div>
-            </div>
-            <div class="sla-cell sla-out sla-cell-slim" id="slaCellOut" tabindex="0" role="button">
-              <div class="sla-num orange" id="slaNumOut">—</div>
-              <div class="sla-pct" id="slaPctOut">—%</div>
-              <div class="sla-cell-label">Out of SLA</div>
-            </div>
-          </div>
-          <div class="sla-bar sla-bar-slim">
-            <div class="sla-bar-in" id="slaBarIn"></div>
-            <div class="sla-bar-out" id="slaBarOut"></div>
-          </div>
-          <div class="sla-bottom">
-            <span>Delivery rate: <strong id="slaDeliveryRate">—</strong></span>
-            <span id="slaMeta">—</span>
-          </div>
-        </div>
-        <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#7c3aed"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#a78bfa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#c4b5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#e9d5ff"></span>Resellers</span></div>
-          <div class="mini-trend" id="slaTrend"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" data-panel="delivery" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Delivery rate</h3>
-        </div>
-        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
-          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
-          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
-        </div>
-        <div class="edit-controls" data-panel-ctl="delivery"></div>
-      </div>
-      <div class="sla-content">
-        <div class="sla-hidden-block" style="display:none">
-          <div class="sla-cells sla-cells-slim">
-            <div class="sla-cell sla-in sla-cell-slim" id="delvCellDone" tabindex="0" role="button">
-              <div class="sla-num green" id="delvNumDone">—</div>
-              <div class="sla-pct" id="delvPctDone">—%</div>
-              <div class="sla-cell-label">Delivered</div>
-            </div>
-            <div class="sla-cell sla-out sla-cell-slim" id="delvCellRej" tabindex="0" role="button" style="border-left-color:var(--red);">
-              <div class="sla-num" id="delvNumRej" style="color:var(--red);">—</div>
-              <div class="sla-pct" id="delvPctRej">—%</div>
-              <div class="sla-cell-label">Not delivered</div>
-            </div>
-          </div>
-          <div class="sla-bar sla-bar-slim"><div class="sla-bar-in" id="delvBarDone"></div><div class="sla-bar-out" id="delvBarRej" style="background:var(--red);"></div></div>
-          <div class="sla-bottom">
-            <span>Rejected: <strong id="delvRejCount">—</strong> · Pending: <strong id="delvPendCount">—</strong></span>
-            <span id="delvMeta">—</span>
-          </div>
-        </div>
-        <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2563eb"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#60a5fa"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#93c5fd"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#dbeafe"></span>Resellers</span></div>
-          <div class="mini-trend" id="delivTrend"></div>
-        </div>
-      </div>
-    </div>
-
-
-    <div class="panel" data-panel="accuracy" data-size="third">
-      <div class="panel-header">
-        <div class="panel-title-wrap">
-          <h3>Accuracy</h3>
-        </div>
-        <div class="trend-tabs trend-tabs-mini" data-trendtoggle>
-          <button class="trend-tab sel" data-g="month" onclick="setTrendGran('month')" title="Month">M</button>
-          <button class="trend-tab"     data-g="week"  onclick="setTrendGran('week')"  title="Week">W</button>
-        </div>
-        <div class="edit-controls" data-panel-ctl="accuracy"></div>
-      </div>
-      <div class="sla-content">
-        <div class="sla-hidden-block" style="display:none">
-          <div class="sla-cells sla-cells-slim">
-            <div class="sla-cell sla-in sla-cell-slim" id="accCellAuto" tabindex="0" role="button">
-              <div class="sla-num green" id="accNumAuto">—</div>
-              <div class="sla-pct" id="accPctAuto">—%</div>
-              <div class="sla-cell-label">AUTO</div>
-            </div>
-            <div class="sla-cell sla-out sla-cell-slim" id="accCellManual" tabindex="0" role="button">
-              <div class="sla-num red" id="accNumManual">—</div>
-              <div class="sla-pct" id="accPctManual">—%</div>
-              <div class="sla-cell-label">MANUALLY EDITED</div>
-            </div>
-          </div>
-          <div class="sla-bar sla-bar-slim">
-            <div class="sla-bar-in" id="accBarAuto" style="background:var(--green)"></div>
-            <div class="sla-bar-out" id="accBarManual" style="background:var(--red)"></div>
-          </div>
-          <div class="sla-bottom">
-            <span id="accMeta">—</span>
-            <span id="accTotal">—</span>
-          </div>
-        </div>
-        <div class="mini-trend-wrap">
-          <div class="mtrend-legend"><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#0f766e"></span>Ent</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#2dd4bf"></span>Mid</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#5eead4"></span>SMB</span><span class="mtrend-legend-item"><span class="mtrend-legend-dot" style="background:#99f6e4"></span>Resellers</span></div>
-          <div class="mini-trend" id="accTrend"></div>
-        </div>
-      </div>
-    </div>
 
     <div class="panel" data-panel="reasons" data-size="third">
       <div class="panel-header">
@@ -1341,9 +1211,6 @@ const sortState = { col: null, dir: null };  // dir: 'asc' | 'desc' | null
 const DEFAULT_LAYOUT = [
   { id:'trend',    size:'full'  },
   { id:'hourly',   size:'full'  },
-  { id:'sla',      size:'third' },
-  { id:'delivery', size:'third' },
-  { id:'accuracy', size:'third' },
   { id:'reasons',  size:'third' },
   { id:'reasons2', size:'third' },
   { id:'reasons3', size:'third' },
@@ -1351,8 +1218,8 @@ const DEFAULT_LAYOUT = [
   { id:'topTeam',  size:'half'  },
   { id:'records',  size:'full'  },
 ];
-let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v12'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
-const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v12',JSON.stringify(LAYOUT));}catch(e){}};
+let LAYOUT = (()=>{try{const s=JSON.parse(localStorage.getItem('opsDash_layout_v13'));if(Array.isArray(s)&&s.length)return s;}catch(e){}return DEFAULT_LAYOUT.slice();})();
+const saveLayout = ()=>{try{localStorage.setItem('opsDash_layout_v13',JSON.stringify(LAYOUT));}catch(e){}};
 
 // Merge any missing panels (e.g. older saved layout) so new panels show up automatically.
 (function reconcileLayout(){
@@ -1961,11 +1828,9 @@ const KPIS = [
   { id:'ent',       label:'Total Enterprises', sub:'unique enterprise IDs',  color:'',       kind:'breakdown', dim:'ent'  },
   { id:'team',      label:'Total Teams',       sub:'unique team IDs',        color:'purple', kind:'breakdown', dim:'team' },
   { id:'received',   label:'Total Received', sub:'unique SKUs',            color:'',       kind:'records',   view:'all'        },
-  { id:'processing', label:'Processing',     sub:'final_status=Processing',color:'blue',   kind:'records',   view:'processing' },
   { id:'delivered',  label:'Delivered',      sub:'final_status=Delivered', color:'green',  kind:'records',   view:'delivered'  },
   { id:'rejected',  label:'Rejected',          sub:'QC Failed + Validation Failed', color:'red', kind:'records', view:'rejected' },
   { id:'tech-ai',   label:'Tech Failure',      sub:'Tech + AI Failed',       color:'amber',  kind:'records',   view:'tech_ai'    },
-  { id:'pending',   label:'Pending',           sub:'qc_unassigned + qc_inprogress', color:'amber',  kind:'records',   view:'pending'    },
 ];
 
 function renderKpiCards(){
@@ -3297,7 +3162,7 @@ function paint(){
   if (techTip) techTip.innerHTML =
     `<div class="rb-row"><span class="rb-lbl">TECH FAILURE</span><span class="rb-num" style="color:var(--amber)">${num(k.totalTechFailed||0)}</span></div>` +
     `<div class="rb-row"><span class="rb-lbl">AI FAILED</span><span class="rb-num" style="color:var(--orange)">${num(k.totalAiFailed||0)}</span></div>`;
-  $('kv-pending').textContent   = num(k.totalPending);
+  $('kv-pending') && ($('kv-pending').textContent = num(k.totalPending));
   $('kv-tat')     && ($('kv-tat').textContent     = fmtTatHrs(k.avgTat));
   $('kv-e2e-tat') && ($('kv-e2e-tat').textContent = fmtTatHrs(k.e2eAvgTat));
   $('kv-w6h')     && ($('kv-w6h').textContent     = k.within6hPct!=null ? k.within6hPct.toFixed(1)+'%' : '—');
@@ -3310,9 +3175,6 @@ function paint(){
     $('hkv-pending').textContent=num(k.totalPending); } }
 
   // SLA + Delivery panels
-  paintSla(k);
-  paintDelivery(k);
-  paintAccuracy(k);
   renderTrends(); renderActiveFiltersBar();
 
   // Top-X segmented bars (Delivered + Rejected in one bar)
