@@ -3235,7 +3235,7 @@ function paint(){
   $('tCount').textContent = `${num(recent.length)} of ${num(filtered.length)} filtered (${num(RAW.length)} total)`;
   updateSortIndicators();
   $('tBody').innerHTML = !recent.length
-    ? `<tr><td colspan="14" class="empty">No records match these filters.</td></tr>`
+    ? `<tr><td colspan="10" class="empty">No records match these filters.</td></tr>`
     : recent.map(r=>{
         const isD=isDelivered(r), isR=isRejected(r);
         const statusLabel = r.fs || '—';
@@ -4168,21 +4168,17 @@ function renderRecordsModal(){
     sortableTh('spin_id',  'Spin ID'),
     sortableTh('ent',      'Enterprise'),
     sortableTh('team',     'Team'),
-    sortableTh('qc',       'QC User'),
     sortableTh('_status',  'Status'),
-    sortableTh('sla',      'SLA'),
-    sortableTh('tat',      'TAT'),
     reasonTh,
     sortableTh('ttype',    'Input Type'),
     sortableTh('vmode',    'Platform'),
     sortableTh('_created', 'Created At'),
-    sortableTh('_updated', 'Final Time'),
   ].filter(Boolean).join('');
 
   $('modalBody').innerHTML = `
     <table>
       <thead><tr>${headHTML}</tr></thead>
-      <tbody>${shown.length===0?`<tr><td colspan="14" class="empty">No records match.</td></tr>`:shown.map(r=>{
+      <tbody>${shown.length===0?`<tr><td colspan="10" class="empty">No records match.</td></tr>`:shown.map(r=>{
         const isD = isDelivered(r), isR = isRejected(r);
         const statusLabel = r.fs || (isD?'Delivered':isR?'Rejected':'Pending');
         const pill = isD?`<span class="pill delivered">${esc(statusLabel)}</span>`:isR?`<span class="pill rejected">${esc(statusLabel)}</span>`:`<span class="pill pending">${esc(statusLabel)}</span>`;
@@ -4193,15 +4189,11 @@ function renderRecordsModal(){
           <td class="mono">${esc(r.sid||'—')}</td>
           <td>${esc(r.ent||'—')}</td>
           <td>${esc(r.tm||'—')}</td>
-          <td>${esc(r.qc||'—')}</td>
           <td>${pill}</td>
-          <td>${slaPill}</td>
-          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
           <td title="${esc(r.rej||'')}" style="max-width:200px;white-space:normal;">${esc(r.rej||'—')}</td>
           <td class="mono">${esc(r.tt||'—')}</td>
           <td class="mono">${esc(r.vm||'—')}</td>
           <td class="mono">${esc(fmtDate(r.c))}</td>
-          <td class="mono">${esc(fmtDate(r.u))}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
@@ -4352,9 +4344,9 @@ function extractModalTable(){
 // Mirrors the column order used by renderRecordsModal so the export matches the table.
 function extractRecordsForExport(){
   const headers = [
-    'VIN', 'SKU ID', 'Spin ID', 'Enterprise', 'Team', 'QC User',
-    'Status', 'SLA', 'TAT', 'Rejection Reason',
-    'Input Type', 'Platform', 'Created At', 'Final Time',
+    'VIN', 'SKU ID', 'Spin ID', 'Enterprise', 'Team',
+    'Status', 'Rejection Reason',
+    'Input Type', 'Platform', 'Created At',
   ];
 
   const statusOf = r => r.fs || (isDelivered(r) ? 'Delivered' : isRejected(r) ? 'Rejected' : 'Pending');
@@ -4366,15 +4358,11 @@ function extractRecordsForExport(){
     r.sid  || '',
     r.ent      || '',
     r.tm     || '',
-    r.qc       || '',
     statusOf(r),
-    slaOf(r),
-    fmtTatHrs(r.tat),
     r.rej      || '',
     r.tt    || '',
     r.vm    || '',
     fmtDate(r.c),
-    fmtDate(r.u),
   ]);
 
   return { headers, rows };
