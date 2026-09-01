@@ -202,7 +202,13 @@ function mapRow(r) {
     set('sku', r.spin_sku_id);
     set('fs',  r.final_status);
     set('isv', r.issues_by_severity);
-    if (r.manual_editing === 'true' || r.manual_editing === true) row.me = 1;
+    set('pat',  r.processedAt);
+    set('enid', r.enterpriseId);
+    set('tmid', r.teamId);
+    set('dvid', r.dealerVinId);
+    set('src',  r['fd.source']);
+    set('me',   r.manual_editing);
+    set('mc',   r.manual_correction);
     if (r.is_assisted_by_qc === 'true' || r.is_assisted_by_qc === true) row.aq = 1;
 
   return row;
