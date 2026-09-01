@@ -3856,6 +3856,7 @@ document.querySelectorAll('#hourlyTabs .trend-tab').forEach(btn=>{
 // SLA PANEL → DRILL-DOWN
 // ─────────────────────────────────────────────────────────────
 function bindSlaCells(){
+  if(!$('slaCellIn')) return;   // SLA/Delivery panels removed in broad view
   const openIn  = ()=>openDrill({label:'Within SLA', sub:'delivered within SLA', view:'within_sla', kind:'records'});
   const openOut = ()=>openDrill({label:'Out of SLA', sub:'delivered breaching SLA', view:'out_of_sla', kind:'records'});
   $('slaCellIn').addEventListener('click', openIn);
