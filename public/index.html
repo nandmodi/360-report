@@ -931,7 +931,6 @@
             <th class="sortable" data-sort="spin_id">Spin ID<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="ent">Enterprise<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="team">Team<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="qc">QC User<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="_status">Status<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="sla">SLA<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="tat">TAT<span class="sort-ind">↕</span></th>
@@ -3263,7 +3262,6 @@ function paint(){
           <td class="mono">${esc(r.sid||'—')}</td>
           <td>${esc(r.ent||'—')}</td>
           <td>${esc(r.tm||'—')}</td>
-          <td>${esc(r.qc||'—')}</td>
           <td>${pill}</td>
           <td>${slaPill}</td>
           <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
@@ -3653,7 +3651,7 @@ function openVinResultsTable(records, notFound){
 
   $('modalBody').innerHTML = `
     <div style="padding:8px 28px 28px;">
-      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;">
+      <div style="overflow-x:auto;border:0.5px solid var(--line);border-radius:8px;padding-bottom:10px;">
         <table class="vin-table">
           <thead><tr>${headerHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
@@ -4434,7 +4432,7 @@ function modalContextLabel(){
   return { title, sub, chips };
 }
 
-function downloadRecentRecordsXlsx(){ const rowsToExport = RAW.filter(passesFilters); const header = ['VIN','SKU ID','Spin ID','Enterprise','Team','QC User','Status','SLA','TAT (hrs)','Rejection Reason','Input Type','Platform','Created At','Final Time']; const aoa = [header, ...rowsToExport.map(r => [ r.vin||'', r.sku||'', r.sid||'', r.ent||'', r.tm||'', r.qc||'', r.fs||'', r.sla===1?'Within':(r.sla===0?'Out':''), (typeof r.tat==='number' ? r.tat : ''), r.rej||'', r.tt||'', r.vm||'', fmtDate(r.c), fmtDate(r.u), ])]; const ws = XLSX.utils.aoa_to_sheet(aoa); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recent records'); XLSX.writeFile(wb, `recent_records_${new Date().toISOString().slice(0,10)}.xlsx`); } $('downloadRecordsBtn')?.addEventListener('click', downloadRecentRecordsXlsx); function safeFilename(s){
+function downloadRecentRecordsXlsx(){ const rowsToExport = RAW.filter(passesFilters); const header = ['VIN','SKU ID','Spin ID','Enterprise','Team','Status','SLA','TAT (hrs)','Rejection Reason','Input Type','Platform','Created At','Final Time']; const aoa = [header, ...rowsToExport.map(r => [ r.vin||'', r.sku||'', r.sid||'', r.ent||'', r.tm||'', r.fs||'', r.sla===1?'Within':(r.sla===0?'Out':''), (typeof r.tat==='number' ? r.tat : ''), r.rej||'', r.tt||'', r.vm||'', fmtDate(r.c), fmtDate(r.u), ])]; const ws = XLSX.utils.aoa_to_sheet(aoa); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recent records'); XLSX.writeFile(wb, `recent_records_${new Date().toISOString().slice(0,10)}.xlsx`); } $('downloadRecordsBtn')?.addEventListener('click', downloadRecentRecordsXlsx); function safeFilename(s){
   return (s || 'export').replace(/[^a-z0-9_\- ]/gi, '').replace(/\s+/g, '_').slice(0, 60) || 'export';
 }
 
