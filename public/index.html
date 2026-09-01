@@ -880,7 +880,7 @@
           <h3>Top enterprises</h3>
           <div class="panel-sub">by job count · click to filter</div>
         </div>
-        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="ent"><button class="trend-tab sel" data-sort="total" onclick="setEntSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setEntSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topEnt"></div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="ent"><button class="trend-tab sel" data-sort="total" onclick="setEntSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setEntSort('rejected')" title="Sort by rejected %">Rejected</button></div><div class="edit-controls" data-panel-ctl="topEnt"></div>
       </div>
       <div id="cEnt" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
@@ -891,7 +891,7 @@
           <h3>Top teams</h3>
           <div class="panel-sub">by job count · click to filter</div>
         </div>
-        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="team"><button class="trend-tab sel" data-sort="total" onclick="setTeamSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setTeamSort('rejected')" title="Sort by rejected count">Rejected</button></div><div class="edit-controls" data-panel-ctl="topTeam"></div>
+        <div class="trend-tabs trend-tabs-mini" data-sorttoggle="team"><button class="trend-tab sel" data-sort="total" onclick="setTeamSort('total')" title="Sort by job count">Jobs</button><button class="trend-tab" data-sort="rejected" onclick="setTeamSort('rejected')" title="Sort by rejected %">Rejected</button></div><div class="edit-controls" data-panel-ctl="topTeam"></div>
       </div>
       <div id="cTeam" style="overflow-y:auto;max-height:320px;padding-right:4px"></div>
     </div>
@@ -917,13 +917,10 @@
             <th class="sortable" data-sort="ent">Enterprise<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="team">Team<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="_status">Status<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="sla">SLA<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="tat">TAT<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="rej">Rejection Reason<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="ttype">Input Type<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="vmode">Platform<span class="sort-ind">↕</span></th>
             <th class="sortable" data-sort="_created">Created At<span class="sort-ind">↕</span></th>
-            <th class="sortable" data-sort="_updated">Final Time<span class="sort-ind">↕</span></th>
           </tr></thead>
           <tbody id="tBody"></tbody>
         </table>
@@ -2875,7 +2872,14 @@ let entSortBy = 'total', teamSortBy = 'total'; let lastEntBreak = null, lastTeam
   // Sort by total desc, take top 10
   const entries = Object.entries(breakMap)
     .map(([label, b]) => ({ label, total:b.total||0, delivered:b.delivered||0, rejected:b.rejected||0 }))
-    .sort((a,b) => b[(opts.sortBy==='rejected'?'rejected':'total')] - a[(opts.sortBy==='rejected'?'rejected':'total')])
+    .sort((a,b) => {
+      if (opts.sortBy === 'rejected'){
+        const ra = a.total ? a.rejected / a.total : 0;
+        const rb = b.total ? b.rejected / b.total : 0;
+        return rb - ra;   // desc by rejection %
+      }
+      return b.total - a.total;
+    })
     .slice(0, opts.limit || 10);
 
   const maxTotal = entries[0]?.total || 1;
@@ -3248,13 +3252,10 @@ function paint(){
           <td>${esc(r.ent||'—')}</td>
           <td>${esc(r.tm||'—')}</td>
           <td>${pill}</td>
-          <td>${slaPill}</td>
-          <td class="mono">${esc(fmtTatHrs(r.tat))}</td>
           <td title="${esc(r.rej||'')}" style="max-width:180px;white-space:normal">${esc(r.rej||'—')}</td>
           <td class="mono">${esc(r.tt||'—')}</td>
           <td class="mono">${esc(r.vm||'—')}</td>
           <td class="mono">${esc(fmtDate(r.c))}</td>
-          <td class="mono">${esc(fmtDate(r.u))}</td>
         </tr>`;
       }).join('');
 
@@ -4410,7 +4411,7 @@ function modalContextLabel(){
   return { title, sub, chips };
 }
 
-function downloadRecentRecordsXlsx(){ const rowsToExport = RAW.filter(passesFilters); const header = ['VIN','SKU ID','Spin ID','Enterprise','Team','Status','SLA','TAT (hrs)','Rejection Reason','Input Type','Platform','Created At','Final Time']; const aoa = [header, ...rowsToExport.map(r => [ r.vin||'', r.sku||'', r.sid||'', r.ent||'', r.tm||'', r.fs||'', r.sla===1?'Within':(r.sla===0?'Out':''), (typeof r.tat==='number' ? r.tat : ''), r.rej||'', r.tt||'', r.vm||'', fmtDate(r.c), fmtDate(r.u), ])]; const ws = XLSX.utils.aoa_to_sheet(aoa); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recent records'); XLSX.writeFile(wb, `recent_records_${new Date().toISOString().slice(0,10)}.xlsx`); } $('downloadRecordsBtn')?.addEventListener('click', downloadRecentRecordsXlsx); function safeFilename(s){
+function downloadRecentRecordsXlsx(){ const rowsToExport = RAW.filter(passesFilters); const header = ['VIN','SKU ID','Spin ID','Enterprise','Team','Status','Rejection Reason','Input Type','Platform','Created At']; const aoa = [header, ...rowsToExport.map(r => [ r.vin||'', r.sku||'', r.sid||'', r.ent||'', r.tm||'', r.fs||'', r.rej||'', r.tt||'', r.vm||'', fmtDate(r.c), ])]; const ws = XLSX.utils.aoa_to_sheet(aoa); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recent records'); XLSX.writeFile(wb, `recent_records_${new Date().toISOString().slice(0,10)}.xlsx`); } $('downloadRecordsBtn')?.addEventListener('click', downloadRecentRecordsXlsx); function safeFilename(s){
   return (s || 'export').replace(/[^a-z0-9_\- ]/gi, '').replace(/\s+/g, '_').slice(0, 60) || 'export';
 }
 
