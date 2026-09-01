@@ -811,18 +811,6 @@
   </div>
 
   <div id="viewOperations">
-  <div class="hero" id="heroBanner">
-    <div class="hero-top">
-      <h2>360 QC Dashboard</h2>
-      <span class="hero-tag">QC · Throughput · SLA</span>
-    </div>
-    <div class="hero-metrics">
-      <div class="hero-metric"><div class="hm-label">Received</div><div class="hm-value" id="hkv-received">—</div></div>
-      <div class="hero-metric"><div class="hm-label">Delivered</div><div class="hm-value" id="hkv-delivered">—</div></div>
-      <div class="hero-metric"><div class="hm-label">SLA %</div><div class="hm-value" id="hkv-sla">—</div></div>
-      <div class="hero-metric"><div class="hm-label">Pending</div><div class="hm-value" id="hkv-pending">—</div></div>
-    </div>
-  </div>
   <div class="section-label">Overview</div>
   <div id="activeFiltersBar" class="active-filters-bar" style="display:none"></div><section class="kpis" id="kpiGrid"></section>
 
@@ -856,6 +844,10 @@
           <h3>QC Failed reasons</h3>
           <div class="panel-sub">Blocker severity issues · all reasons, scroll for more</div>
         </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div id="pctQc" style="font-size:16px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--red);line-height:1.1">—</div>
+          <div id="pctQcSub" style="font-size:10px;color:var(--muted);margin-top:2px">of reviewed</div>
+        </div>
       </div>
       <div id="cQcReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
@@ -866,6 +858,10 @@
           <h3>Validation Failed reasons</h3>
           <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
         </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div id="pctVal" style="font-size:16px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--orange);line-height:1.1">—</div>
+          <div id="pctValSub" style="font-size:10px;color:var(--muted);margin-top:2px">of reviewed</div>
+        </div>
       </div>
       <div id="cValReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
     </div>
@@ -875,6 +871,10 @@
         <div class="panel-title-wrap">
           <h3>Tech &amp; AI Failure reasons</h3>
           <div class="panel-sub">failure reasons · all reasons, scroll for more</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div id="pctTech" style="font-size:16px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--amber);line-height:1.1">—</div>
+          <div id="pctTechSub" style="font-size:10px;color:var(--muted);margin-top:2px">of reviewed</div>
         </div>
       </div>
       <div id="cTechReasons" style="overflow-y:auto;max-height:190px;padding-right:4px"></div>
@@ -1560,6 +1560,7 @@ function aggregate(rows){
   const skuSet=new Set(), entIdSet=new Set(), teamIdSet=new Set();
   let totalDelivered=0,totalRejected=0,totalValidationFailed=0,totalQcFailed=0,totalPending=0;
   let totalTechFailed=0, totalAiFailed=0, totalProcessing=0;
+  let totalReviewed=0;
   let withinSla=0, outOfSla=0, totalCompletedVins=0;
   let autoDelivered=0, manualDelivered=0;
   // New metrics
@@ -1580,6 +1581,7 @@ function aggregate(rows){
   // ── Step 3: Count on deduped rows ─────────────────────────────
   for (const r of deduped){
     if (r.sku) skuSet.add(r.sku);
+    if ((r.cs||'')==='qc_done') totalReviewed++;
     if (r.eid) entIdSet.add(r.eid); else if (r.ent) entIdSet.add(r.ent);
     if (r.tid) teamIdSet.add(r.tid); else if (r.tm) teamIdSet.add(r.tm);
 
@@ -1731,7 +1733,7 @@ function aggregate(rows){
   const totalReceived = skuSet.size;
   return {
     totalReceived, totalDelivered, totalRejected, totalValidationFailed, totalQcFailed,
-    totalTechFailed, totalAiFailed, totalPending, totalProcessing,
+    totalTechFailed, totalAiFailed, totalPending, totalProcessing, totalReviewed,
     withinSla, outOfSla,
     slaCompliance: (withinSla+outOfSla) ? +((withinSla/(withinSla+outOfSla))*100).toFixed(2) : null,
     deliveryRate:  totalReceived  ? +((totalDelivered/totalReceived)*100).toFixed(2) : null,
@@ -2951,14 +2953,18 @@ let entSortBy = 'total', teamSortBy = 'total'; let lastEntBreak = null, lastTeam
   container.appendChild(wrap);
 }
 // ── Reason breakdown card (top N with scroll) ────────────────────────────────
-function mkReasonCard(containerId, countMap, color, drillView){
+function mkReasonCard(containerId, countMap, color, drillView, base, pctElId, pctSubElId){
   const el = $(containerId);
   if (!el) return;
   const entries = Object.entries(countMap).sort((a,b)=>b[1]-a[1]);
+  const cardTotal = entries.reduce((s,e)=>s+e[1],0);
+  if (pctElId && $(pctElId)) $(pctElId).textContent = (base>0) ? (cardTotal/base*100).toFixed(1)+'%' : '\u2014';
+  if (pctSubElId && $(pctSubElId)) $(pctSubElId).textContent = 'of reviewed \u00b7 ' + num(cardTotal);
   if (!entries.length){ el.innerHTML='<p style="color:var(--muted);font-size:12px;padding:8px 0">No data</p>'; return; }
   const max = entries[0][1];
   el.innerHTML = entries.map(([label, count]) => {
     const pct    = (count/max)*100;
+    const share  = base>0 ? (count/base*100) : 0;
     const active = F.rejReason && F.rejReason.label === label;
     return `
       <div class="reason-row" data-reason="${esc(label)}" data-view="${drillView||''}"
@@ -2971,7 +2977,7 @@ function mkReasonCard(containerId, countMap, color, drillView){
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:8px">
           <span style="font-size:11px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80%"
                 title="${esc(label)}">${esc(label)}</span>
-          <span style="font-size:11px;font-weight:600;color:var(--ink);font-family:'JetBrains Mono',monospace;flex-shrink:0">${num(count)}</span>
+          <span style="font-size:11px;font-family:'JetBrains Mono',monospace;flex-shrink:0"><span style="font-weight:600;color:var(--ink)">${num(count)}</span><span style="color:var(--muted);font-weight:400"> \u00b7 ${share.toFixed(1)}%</span></span>
         </div>
         <div style="height:6px;background:var(--line);border-radius:3px;overflow:hidden">
           <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .3s"></div>
@@ -3187,9 +3193,9 @@ function paint(){
   });
 
   // Reason breakdown cards
-  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc');
-  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val');
-  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech');
+  mkReasonCard('cQcReasons',   k.qcReasons||{},   PAL.red,    'qc',   k.totalReviewed, 'pctQc',   'pctQcSub');
+  mkReasonCard('cValReasons',  k.valReasons||{},  PAL.orange, 'val',  k.totalReviewed, 'pctVal',  'pctValSub');
+  mkReasonCard('cTechReasons', k.techReasons||{}, PAL.amber,  'tech', k.totalReviewed, 'pctTech', 'pctTechSub');
   // Trend chart — uses the same filters as the main view BUT ignores date filter
   // and ignores the rejection-reason filter (so the timeline shows full context).
   const trendRows = RAW.filter(r => {
