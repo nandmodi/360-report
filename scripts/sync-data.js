@@ -319,15 +319,32 @@ async function main() {
 
   // The card exposes no date parameter, so query it AS A SOURCE TABLE via /api/dataset/csv
   // and apply a createdAt month filter ourselves (avoids the one-shot full export timeout).
-  const cardDef = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
-  const dbId    = cardDef.database_id;
-  const meta    = Array.isArray(cardDef.result_metadata) ? cardDef.result_metadata : [];
+  const cardDef    = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
+  const dbId       = cardDef.database_id;
+  const meta       = Array.isArray(cardDef.result_metadata) ? cardDef.result_metadata : [];
+  const nativeTags = (cardDef.dataset_query && cardDef.dataset_query.native && cardDef.dataset_query.native['template-tags']) || {};
   console.log('[card db] ' + dbId + ' | [columns] ' + meta.map(c => c.name).join(', '));
-  const createdCol = meta.find(c => c.name === 'createdAt') || meta.find(c => /creat/i.test(c.name || ''));
-  if (dbId == null) throw new Error('Card ' + METABASE_CARD_ID + ' has no database_id');
-  if (!createdCol) throw new Error('No createdAt column in card result_metadata: ' + JSON.stringify(meta.map(c => c.name)));
-  const createdRef = createdCol.field_ref || ['field', createdCol.name, { 'base-type': createdCol.base_type || 'type/DateTime' }];
-  console.log('[createdAt ref] ' + JSON.stringify(createdRef));
+  console.log('[card parameters] ' + JSON.stringify(cardDef.parameters || []));
+  console.log('[template-tags] ' + JSON.stringify(nativeTags));
+
+  // Preferred path: a date field-filter (dimension) template-tag on the card's SQL.
+  const tagList = Object.values(nativeTags);
+  const dateTag =
+    tagList.find(t => t && t.type === 'dimension' && /creat/i.test((t.name||'') + (t['display-name']||''))) ||
+    tagList.find(t => t && t.type === 'dimension' && /date/i.test((t.name||'') + (t['display-name']||'') + JSON.stringify(t.dimension||''))) ||
+    tagList.find(t => t && t.type === 'dimension');
+
+  let createdRef = null;
+  if (dateTag) {
+    console.log('[mode] card field-filter param | tag=' + dateTag.name + ' widget=' + (dateTag['widget-type'] || 'date/all-options'));
+  } else {
+    // Fallback: query the card as a source table and filter createdAt in MBQL.
+    const createdCol = meta.find(c => c.name === 'createdAt') || meta.find(c => /creat/i.test(c.name || ''));
+    if (dbId == null || !createdCol)
+      throw new Error('No date field-filter template-tag, and no createdAt column/db for MBQL fallback. tags=' + JSON.stringify(nativeTags) + ' cols=' + JSON.stringify(meta.map(c => c.name)));
+    createdRef = createdCol.field_ref || ['field', createdCol.name, { 'base-type': createdCol.base_type || 'type/DateTime' }];
+    console.log('[mode] dataset-API fallback | createdRef=' + JSON.stringify(createdRef));
+  }
 
   // Rolling window: start month = KEEP_DAYS ago (env START_MONTH overrides), through the current month.
   let yy, mm;
@@ -347,19 +364,26 @@ async function main() {
   for (const mo of monthList) {
     const [Y, M]   = mo.split('-').map(Number);
     const from     = `${mo}-01`;
+    const lastDay  = new Date(Date.UTC(Y, M, 0)).getUTCDate();
+    const to       = `${mo}-${String(lastDay).padStart(2,'0')}`;
     const nextY    = M === 12 ? Y + 1 : Y;
     const nextM    = M === 12 ? 1 : M + 1;
     const nextFrom = `${nextY}-${String(nextM).padStart(2,'0')}-01`;
-    const mbql = {
-      database: dbId,
-      type: 'query',
-      query: {
-        'source-table': 'card__' + METABASE_CARD_ID,
-        filter: ['and', ['>=', createdRef, from], ['<', createdRef, nextFrom]],
-      },
-    };
-    if (mo === monthList[0]) console.log('[sample MBQL] ' + JSON.stringify(mbql));
-    const text  = await fetchWithRetry(() => fetchDatasetCSV(mbql, sessionToken));
+
+    let text;
+    if (dateTag) {
+      const paramEntry = {
+        type: dateTag['widget-type'] || 'date/all-options',
+        target: ['dimension', ['template-tag', dateTag.name]],
+        value: `${from}~${to}`,
+      };
+      if (mo === monthList[0]) console.log('[sample param] ' + JSON.stringify(paramEntry));
+      text = await fetchWithRetry(() => fetchCardCSVParams(METABASE_CARD_ID, sessionToken, [paramEntry]));
+    } else {
+      const mbql = { database: dbId, type: 'query', query: { 'source-table': 'card__' + METABASE_CARD_ID, filter: ['and', ['>=', createdRef, from], ['<', createdRef, nextFrom]] } };
+      if (mo === monthList[0]) console.log('[sample MBQL] ' + JSON.stringify(mbql));
+      text = await fetchWithRetry(() => fetchDatasetCSV(mbql, sessionToken));
+    }
     const lines = text.split('\n');
     if (!headers) { headers = parseCSVLine(lines[0]); console.log('[CSV headers] ' + headers.join(' | ')); }
     let kept = 0;
