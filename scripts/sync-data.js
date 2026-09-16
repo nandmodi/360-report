@@ -214,44 +214,126 @@ function mapRow(r) {
   return row;
 }
 
+function getJSON(url, sessionToken){
+  const u = new URL(url);
+  return new Promise((resolve, reject) => {
+    https.get(u, { headers: { 'X-Metabase-Session': sessionToken, Accept: 'application/json' } }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const b = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`HTTP ${res.statusCode}: ${b.slice(0,200)}`));
+        try { resolve(JSON.parse(b)); } catch (e) { reject(new Error('Invalid JSON: ' + b.slice(0,200))); }
+      });
+    }).on('error', reject);
+  });
+}
+
+function fetchCardCSVParams(cardId, sessionToken, paramsArray, redirects = 0){
+  if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
+  const url = `${METABASE_BASE}/api/card/${cardId}/query/csv`;
+  const postData = 'parameters=' + encodeURIComponent(JSON.stringify(paramsArray));
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'X-Metabase-Session': sessionToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+        'Accept-Encoding': 'gzip, deflate',
+      },
+    }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
+        return resolve(fetchCardCSVParams(cardId, sessionToken, paramsArray, redirects + 1));
+      if (res.statusCode !== 200) {
+        const eb = []; res.on('data', c => eb.push(c));
+        res.on('end', () => reject(new Error(`HTTP ${res.statusCode}: ${Buffer.concat(eb).toString('utf8').slice(0,300)}`)));
+        return;
+      }
+      let stream = res;
+      const enc = res.headers['content-encoding'];
+      if (enc === 'gzip')    stream = res.pipe(zlib.createGunzip());
+      if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
+      const chunks = [];
+      stream.on('data', c => chunks.push(c));
+      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      stream.on('error', reject);
+    });
+    req.setTimeout(180000, () => req.destroy(new Error('request timeout (180s)')));
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
+
+async function fetchWithRetry(fn, tries = 3){
+  let lastErr;
+  for (let a = 1; a <= tries; a++){
+    try { return await fn(); }
+    catch (e){ lastErr = e; console.log(`  retry ${a}/${tries} after: ${e.message}`); await new Promise(r => setTimeout(r, 3000 * a)); }
+  }
+  throw lastErr;
+}
+
 async function main() {
-    console.log('Fetching CSV from Metabase (authenticated)...');
-    const t0   = Date.now();
-    const sessionToken = await getMetabaseSession();
-    const text = await fetchCardCSV(METABASE_CARD_ID, sessionToken);
-    console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+  const t0 = Date.now();
+  console.log('Fetching month-wise from Metabase (authenticated)...');
+  const sessionToken = await getMetabaseSession();
 
-  const lines   = text.split('\n');
-    const headers = parseCSVLine(lines[0]);
-    console.log(`Total rows: ${lines.length - 1}`);
-    console.log('[CSV headers] ' + headers.join(' | '));
-    const procCol = headers.find(h => /processed/i.test(h));
-    console.log('[processed-like column] ' + (procCol || 'NONE FOUND — E2E will always fall back to createdAt'));
+  // Discover the card's date-filter parameter so each month can be queried on its own
+  // (one full-table export now times out, so we page by createdAt month instead).
+  const cardDef    = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
+  const cardParams = Array.isArray(cardDef.parameters) ? cardDef.parameters : [];
+  console.log('[card parameters] ' + JSON.stringify(cardParams.map(p => ({ id:p.id, slug:p.slug, type:p.type, name:p.name, target:p.target }))));
+  const dateParam =
+    cardParams.find(p => /date/i.test(p.type||'') && /creat/i.test((p.slug||'') + (p.name||''))) ||
+    cardParams.find(p => /date/i.test(p.type||'')) ||
+    cardParams.find(p => /creat/i.test((p.slug||'') + (p.name||'')));
+  if (!dateParam) throw new Error('No date/createdAt parameter on card ' + METABASE_CARD_ID + '. Parameters: ' + JSON.stringify(cardParams));
+  console.log('[using date param] ' + JSON.stringify({ id:dateParam.id, slug:dateParam.slug, type:dateParam.type, target:dateParam.target }));
 
-  const cutoff = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    console.log(`Keeping last ${KEEP_DAYS} days (cutoff: ${cutoff}) + all pending`);
+  // Rolling window: start month = KEEP_DAYS ago (env START_MONTH overrides), through the current month.
+  let yy, mm;
+  if (process.env.START_MONTH) { const s = process.env.START_MONTH.split('-').map(Number); yy = s[0]; mm = s[1]; }
+  else { const sd = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000); yy = sd.getUTCFullYear(); mm = sd.getUTCMonth() + 1; }
+  const now = new Date();
+  const curY = now.getUTCFullYear(), curM = now.getUTCMonth() + 1;
+  const monthList = [];
+  while (yy < curY || (yy === curY && mm <= curM)) {
+    monthList.push(`${yy}-${String(mm).padStart(2,'0')}`);
+    mm++; if (mm > 12) { mm = 1; yy++; }
+  }
+  console.log(`Fetching ${monthList.length} months: ${monthList.join(', ')}`);
 
   const rows = [];
-    let skipped = 0;
+  let headers = null;
+  for (const mo of monthList) {
+    const [Y, M]  = mo.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(Y, M, 0)).getUTCDate();
+    const value   = `${mo}-01~${mo}-${String(lastDay).padStart(2,'0')}`;
+    const paramEntry = { type: dateParam.type, value, id: dateParam.id, target: dateParam.target };
+    if (dateParam.slug) paramEntry.slug = dateParam.slug;
 
-  for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const vals = parseCSVLine(line);
-        const r = {};
-        headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
-
-      const isPending = r.crm_status === 'qc_unassigned' || r.crm_status === 'qc_inprogress';
-        const dateStr   = getDateStr(r.createdAt);
-        if (!dateStr) { skipped++; continue; }
-        if (!isPending && dateStr < cutoff) { skipped++; continue; }
-
+    const text  = await fetchWithRetry(() => fetchCardCSVParams(METABASE_CARD_ID, sessionToken, [paramEntry]));
+    const lines = text.split('\n');
+    if (!headers) { headers = parseCSVLine(lines[0]); console.log('[CSV headers] ' + headers.join(' | ')); }
+    let kept = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const vals = parseCSVLine(line);
+      const r = {};
+      headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
+      if (!getDateStr(r.createdAt)) continue;
       rows.push(mapRow(r));
+      kept++;
+    }
+    console.log(`  ${mo} (${value}): ${kept} rows`);
   }
 
-  console.log(`Kept: ${rows.length} | Skipped: ${skipped}`);
-    console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
-    console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
+  console.log(`Total kept: ${rows.length} in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+  console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
+  console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
     const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
