@@ -111,6 +111,7 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0) {
                   stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
                   stream.on('error', reject);
           });
+          req.setTimeout(240000, () => req.destroy(new Error('request timeout (240s)')));
           req.on('error', reject);
           req.write(postData);
           req.end();
@@ -314,95 +315,44 @@ function fetchDatasetCSV(mbql, sessionToken, redirects = 0){
 
 async function main() {
   const t0 = Date.now();
-  console.log('Fetching month-wise from Metabase (authenticated)...');
+  console.log('Fetching full dataset from Metabase (authenticated)...');
   const sessionToken = await getMetabaseSession();
 
-  // The card exposes no date parameter, so query it AS A SOURCE TABLE via /api/dataset/csv
-  // and apply a createdAt month filter ourselves (avoids the one-shot full export timeout).
-  const cardDef    = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
-  const dbId       = cardDef.database_id;
-  const meta       = Array.isArray(cardDef.result_metadata) ? cardDef.result_metadata : [];
-  const nativeTags = (cardDef.dataset_query && cardDef.dataset_query.native && cardDef.dataset_query.native['template-tags']) || {};
-  console.log('[card db] ' + dbId + ' | [columns] ' + meta.map(c => c.name).join(', '));
-  console.log('[card parameters] ' + JSON.stringify(cardDef.parameters || []));
-  console.log('[template-tags] ' + JSON.stringify(nativeTags));
+  // Card 12025 has no date parameter, so we fetch it in one shot (same as the tracker
+  // dashboard) and retry on the intermittent ClickHouse/ETIMEDOUT failures.
+  const text = await fetchWithRetry(() => fetchCardCSV(METABASE_CARD_ID, sessionToken), 3);
+  console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
-  // Preferred path: a date field-filter (dimension) template-tag on the card's SQL.
-  const tagList = Object.values(nativeTags);
-  const dateTag =
-    tagList.find(t => t && t.type === 'dimension' && /creat/i.test((t.name||'') + (t['display-name']||''))) ||
-    tagList.find(t => t && t.type === 'dimension' && /date/i.test((t.name||'') + (t['display-name']||'') + JSON.stringify(t.dimension||''))) ||
-    tagList.find(t => t && t.type === 'dimension');
+  const lines   = text.split('\n');
+  const headers = parseCSVLine(lines[0]);
+  console.log('[CSV headers] ' + headers.join(' | '));
+  console.log(`Total CSV rows: ${lines.length - 1}`);
 
-  let createdRef = null;
-  if (dateTag) {
-    console.log('[mode] card field-filter param | tag=' + dateTag.name + ' widget=' + (dateTag['widget-type'] || 'date/all-options'));
-  } else {
-    // Fallback: query the card as a source table and filter createdAt in MBQL.
-    const createdCol = meta.find(c => c.name === 'createdAt') || meta.find(c => /creat/i.test(c.name || ''));
-    if (dbId == null || !createdCol)
-      throw new Error('No date field-filter template-tag, and no createdAt column/db for MBQL fallback. tags=' + JSON.stringify(nativeTags) + ' cols=' + JSON.stringify(meta.map(c => c.name)));
-    createdRef = createdCol.field_ref || ['field', createdCol.name, { 'base-type': createdCol.base_type || 'type/DateTime' }];
-    console.log('[mode] dataset-API fallback | createdRef=' + JSON.stringify(createdRef));
-  }
-
-  // Rolling window: start month = KEEP_DAYS ago (env START_MONTH overrides), through the current month.
-  let yy, mm;
-  if (process.env.START_MONTH) { const s = process.env.START_MONTH.split('-').map(Number); yy = s[0]; mm = s[1]; }
-  else { const sd = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000); yy = sd.getUTCFullYear(); mm = sd.getUTCMonth() + 1; }
-  const now = new Date();
-  const curY = now.getUTCFullYear(), curM = now.getUTCMonth() + 1;
-  const monthList = [];
-  while (yy < curY || (yy === curY && mm <= curM)) {
-    monthList.push(`${yy}-${String(mm).padStart(2,'0')}`);
-    mm++; if (mm > 12) { mm = 1; yy++; }
-  }
-  console.log(`Fetching ${monthList.length} months: ${monthList.join(', ')}`);
-
+  const cutoff = new Date(Date.now() - KEEP_DAYS * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  console.log(`Keeping last ${KEEP_DAYS} days (cutoff ${cutoff}) + all pending`);
   const rows = [];
-  let headers = null;
-  for (const mo of monthList) {
-    const [Y, M]   = mo.split('-').map(Number);
-    const from     = `${mo}-01`;
-    const lastDay  = new Date(Date.UTC(Y, M, 0)).getUTCDate();
-    const to       = `${mo}-${String(lastDay).padStart(2,'0')}`;
-    const nextY    = M === 12 ? Y + 1 : Y;
-    const nextM    = M === 12 ? 1 : M + 1;
-    const nextFrom = `${nextY}-${String(nextM).padStart(2,'0')}-01`;
-
-    let text;
-    if (dateTag) {
-      const paramEntry = {
-        type: dateTag['widget-type'] || 'date/all-options',
-        target: ['dimension', ['template-tag', dateTag.name]],
-        value: `${from}~${to}`,
-      };
-      if (mo === monthList[0]) console.log('[sample param] ' + JSON.stringify(paramEntry));
-      text = await fetchWithRetry(() => fetchCardCSVParams(METABASE_CARD_ID, sessionToken, [paramEntry]));
-    } else {
-      const mbql = { database: dbId, type: 'query', query: { 'source-table': 'card__' + METABASE_CARD_ID, filter: ['and', ['>=', createdRef, from], ['<', createdRef, nextFrom]] } };
-      if (mo === monthList[0]) console.log('[sample MBQL] ' + JSON.stringify(mbql));
-      text = await fetchWithRetry(() => fetchDatasetCSV(mbql, sessionToken));
-    }
-    const lines = text.split('\n');
-    if (!headers) { headers = parseCSVLine(lines[0]); console.log('[CSV headers] ' + headers.join(' | ')); }
-    let kept = 0;
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const vals = parseCSVLine(line);
-      const r = {};
-      headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
-      if (!getDateStr(r.createdAt)) continue;
-      rows.push(mapRow(r));
-      kept++;
-    }
-    console.log(`  ${mo} (${from}..${nextFrom}): ${kept} rows`);
+  let skipped = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const vals = parseCSVLine(line);
+    const r = {};
+    headers.forEach((h, idx) => { r[h] = vals[idx] ?? ''; });
+    const isPending = r.crm_status === 'qc_unassigned' || r.crm_status === 'qc_inprogress';
+    const dateStr = getDateStr(r.createdAt);
+    if (!dateStr) { skipped++; continue; }
+    if (!isPending && dateStr < cutoff) { skipped++; continue; }
+    rows.push(mapRow(r));
   }
-
-  console.log(`Total kept: ${rows.length} in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+  console.log(`Kept: ${rows.length} | Skipped: ${skipped}`);
   console.log(`[E2E] rows using processedAt: ${_diag.withProcessed} | fell back to createdAt: ${_diag.fallback}`);
   console.log('[E2E sample] ' + JSON.stringify(_diag.sample, null, 0));
+
+  // SAFETY GUARD: a failed/empty query must NOT wipe the good data already published.
+  if (rows.length < 100) {
+    console.error(`ABORTING: only ${rows.length} rows kept — query likely failed. Existing public/data/ left untouched.`);
+    process.exit(1);
+  }
 
   const delivered = rows.filter(r => r.fs === 'Delivered').length;
     const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
