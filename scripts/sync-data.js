@@ -275,22 +275,59 @@ async function fetchWithRetry(fn, tries = 3){
   throw lastErr;
 }
 
+function fetchDatasetCSV(mbql, sessionToken, redirects = 0){
+  if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
+  const url = `${METABASE_BASE}/api/dataset/csv`;
+  const postData = 'query=' + encodeURIComponent(JSON.stringify(mbql));
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'X-Metabase-Session': sessionToken,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+        'Accept-Encoding': 'gzip, deflate',
+      },
+    }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
+        return resolve(fetchDatasetCSV(mbql, sessionToken, redirects + 1));
+      if (res.statusCode !== 200) {
+        const eb = []; res.on('data', c => eb.push(c));
+        res.on('end', () => reject(new Error(`HTTP ${res.statusCode}: ${Buffer.concat(eb).toString('utf8').slice(0,300)}`)));
+        return;
+      }
+      let stream = res;
+      const enc = res.headers['content-encoding'];
+      if (enc === 'gzip')    stream = res.pipe(zlib.createGunzip());
+      if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
+      const chunks = [];
+      stream.on('data', c => chunks.push(c));
+      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      stream.on('error', reject);
+    });
+    req.setTimeout(180000, () => req.destroy(new Error('request timeout (180s)')));
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
+
 async function main() {
   const t0 = Date.now();
   console.log('Fetching month-wise from Metabase (authenticated)...');
   const sessionToken = await getMetabaseSession();
 
-  // Discover the card's date-filter parameter so each month can be queried on its own
-  // (one full-table export now times out, so we page by createdAt month instead).
-  const cardDef    = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
-  const cardParams = Array.isArray(cardDef.parameters) ? cardDef.parameters : [];
-  console.log('[card parameters] ' + JSON.stringify(cardParams.map(p => ({ id:p.id, slug:p.slug, type:p.type, name:p.name, target:p.target }))));
-  const dateParam =
-    cardParams.find(p => /date/i.test(p.type||'') && /creat/i.test((p.slug||'') + (p.name||''))) ||
-    cardParams.find(p => /date/i.test(p.type||'')) ||
-    cardParams.find(p => /creat/i.test((p.slug||'') + (p.name||'')));
-  if (!dateParam) throw new Error('No date/createdAt parameter on card ' + METABASE_CARD_ID + '. Parameters: ' + JSON.stringify(cardParams));
-  console.log('[using date param] ' + JSON.stringify({ id:dateParam.id, slug:dateParam.slug, type:dateParam.type, target:dateParam.target }));
+  // The card exposes no date parameter, so query it AS A SOURCE TABLE via /api/dataset/csv
+  // and apply a createdAt month filter ourselves (avoids the one-shot full export timeout).
+  const cardDef = await getJSON(`${METABASE_BASE}/api/card/${METABASE_CARD_ID}`, sessionToken);
+  const dbId    = cardDef.database_id;
+  const meta    = Array.isArray(cardDef.result_metadata) ? cardDef.result_metadata : [];
+  console.log('[card db] ' + dbId + ' | [columns] ' + meta.map(c => c.name).join(', '));
+  const createdCol = meta.find(c => c.name === 'createdAt') || meta.find(c => /creat/i.test(c.name || ''));
+  if (dbId == null) throw new Error('Card ' + METABASE_CARD_ID + ' has no database_id');
+  if (!createdCol) throw new Error('No createdAt column in card result_metadata: ' + JSON.stringify(meta.map(c => c.name)));
+  const createdRef = createdCol.field_ref || ['field', createdCol.name, { 'base-type': createdCol.base_type || 'type/DateTime' }];
+  console.log('[createdAt ref] ' + JSON.stringify(createdRef));
 
   // Rolling window: start month = KEEP_DAYS ago (env START_MONTH overrides), through the current month.
   let yy, mm;
@@ -308,13 +345,21 @@ async function main() {
   const rows = [];
   let headers = null;
   for (const mo of monthList) {
-    const [Y, M]  = mo.split('-').map(Number);
-    const lastDay = new Date(Date.UTC(Y, M, 0)).getUTCDate();
-    const value   = `${mo}-01~${mo}-${String(lastDay).padStart(2,'0')}`;
-    const paramEntry = { type: dateParam.type, value, id: dateParam.id, target: dateParam.target };
-    if (dateParam.slug) paramEntry.slug = dateParam.slug;
-
-    const text  = await fetchWithRetry(() => fetchCardCSVParams(METABASE_CARD_ID, sessionToken, [paramEntry]));
+    const [Y, M]   = mo.split('-').map(Number);
+    const from     = `${mo}-01`;
+    const nextY    = M === 12 ? Y + 1 : Y;
+    const nextM    = M === 12 ? 1 : M + 1;
+    const nextFrom = `${nextY}-${String(nextM).padStart(2,'0')}-01`;
+    const mbql = {
+      database: dbId,
+      type: 'query',
+      query: {
+        'source-table': 'card__' + METABASE_CARD_ID,
+        filter: ['and', ['>=', createdRef, from], ['<', createdRef, nextFrom]],
+      },
+    };
+    if (mo === monthList[0]) console.log('[sample MBQL] ' + JSON.stringify(mbql));
+    const text  = await fetchWithRetry(() => fetchDatasetCSV(mbql, sessionToken));
     const lines = text.split('\n');
     if (!headers) { headers = parseCSVLine(lines[0]); console.log('[CSV headers] ' + headers.join(' | ')); }
     let kept = 0;
@@ -328,7 +373,7 @@ async function main() {
       rows.push(mapRow(r));
       kept++;
     }
-    console.log(`  ${mo} (${value}): ${kept} rows`);
+    console.log(`  ${mo} (${from}..${nextFrom}): ${kept} rows`);
   }
 
   console.log(`Total kept: ${rows.length} in ${((Date.now()-t0)/1000).toFixed(1)}s`);
