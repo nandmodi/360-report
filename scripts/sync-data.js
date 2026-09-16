@@ -85,7 +85,7 @@ async function getMetabaseSession() {
 
 // Fetches a card/model's data as CSV using an authenticated session token
 // (works for both regular questions and Models — both are "cards" in Metabase's API).
-function fetchCardCSV(cardId, sessionToken, redirects = 0) {
+function fetchCardCSV(cardId, sessionToken, redirects = 0, attempt = 1) {
     if (redirects > 5) return Promise.reject(new Error('Too many redirects'));
     const url = `${METABASE_BASE}/api/card/${cardId}/query/csv`;
     const postData = 'parameters=%5B%5D'; // form-encoded empty parameters array
@@ -100,7 +100,7 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0) {
                   },
           }, res => {
                   if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location)
-                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1));
+                            return resolve(fetchCardCSV(cardId, sessionToken, redirects + 1, attempt));
                   if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} fetching card CSV`));
                   let stream = res;
                   const enc = res.headers['content-encoding'];
@@ -108,16 +108,51 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0) {
                   if (enc === 'deflate') stream = res.pipe(zlib.createInflate());
                   const chunks = [];
                   stream.on('data', c => chunks.push(c));
-                  stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+                  stream.on('end', () => {
+                        if (!res.complete){
+                              const msg = `Response truncated (incomplete) after ${Buffer.concat(chunks).length} bytes`;
+                              if (attempt < 3){
+                                    console.warn(`${msg} — retrying (attempt ${attempt+1}/3)…`);
+                                    return resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
+                              }
+                              return reject(new Error(msg + ' — gave up after 3 attempts'));
+                        }
+                        resolve(Buffer.concat(chunks).toString('utf8'));
+                  });
                   stream.on('error', reject);
           });
-          req.setTimeout(240000, () => req.destroy(new Error('request timeout (240s)')));
-          req.on('error', reject);
+          req.on('error', err => {
+                if (attempt < 3){
+                      console.warn(`Request error (${err.message}) — retrying (attempt ${attempt+1}/3)…`);
+                      resolve(fetchCardCSV(cardId, sessionToken, redirects, attempt+1));
+                } else {
+                      reject(new Error(`${err.message} — gave up after 3 attempts`));
+                }
+          });
+          req.setTimeout(180000, () => {
+                req.destroy(new Error('Request timed out after 180s'));
+          });
           req.write(postData);
           req.end();
     });
 }
 
+// The ClickHouse query behind card 12025 intermittently hits its memory limit and
+// returns HTTP 200 with a tiny error-CSV instead of data. Detect that and retry with
+// a delay so the DB has time to free memory (this is what makes the sync reliable).
+async function fetchDatasetReliable(sessionToken){
+  const MAX = 6, WAIT_MS = 45000;
+  for (let a = 1; a <= MAX; a++){
+    const text = await fetchCardCSV(METABASE_CARD_ID, sessionToken);
+    const head = text.slice(0, 3000);
+    const failed = /MEMORY_LIMIT|OvercommitTracker|status:failed|class java\.sql\.SQLException/i.test(head)
+                || text.split('\n').length < 3;
+    if (!failed) { if (a > 1) console.log(`Query succeeded on attempt ${a}/${MAX}`); return text; }
+    console.warn(`Attempt ${a}/${MAX}: ClickHouse query failed (memory limit). ` + (a < MAX ? `Waiting ${WAIT_MS/1000}s before retry…` : 'No attempts left.'));
+    if (a < MAX) await new Promise(r => setTimeout(r, WAIT_MS));
+  }
+  throw new Error('Query failed on all attempts (ClickHouse MEMORY_LIMIT_EXCEEDED). Re-run later.');
+}
 function parseCSVLine(line) {
     const result = [];
     let cur = '', inQ = false;
@@ -320,7 +355,7 @@ async function main() {
 
   // Card 12025 has no date parameter, so we fetch it in one shot (same as the tracker
   // dashboard) and retry on the intermittent ClickHouse/ETIMEDOUT failures.
-  const text = await fetchWithRetry(() => fetchCardCSV(METABASE_CARD_ID, sessionToken), 3);
+  const text = await fetchDatasetReliable(sessionToken);
   console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
   const lines   = text.split('\n');
