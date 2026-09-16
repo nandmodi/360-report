@@ -140,18 +140,26 @@ function fetchCardCSV(cardId, sessionToken, redirects = 0, attempt = 1) {
 // The ClickHouse query behind card 12025 intermittently hits its memory limit and
 // returns HTTP 200 with a tiny error-CSV instead of data. Detect that and retry with
 // a delay so the DB has time to free memory (this is what makes the sync reliable).
-async function fetchDatasetReliable(sessionToken){
+async function fetchDatasetReliable(sessionToken, minRows = 0){
   const MAX = 6, WAIT_MS = 45000;
   for (let a = 1; a <= MAX; a++){
     const text = await fetchCardCSV(METABASE_CARD_ID, sessionToken);
     const head = text.slice(0, 3000);
-    const failed = /MEMORY_LIMIT|OvercommitTracker|status:failed|class java\.sql\.SQLException/i.test(head)
-                || text.split('\n').length < 3;
-    if (!failed) { if (a > 1) console.log(`Query succeeded on attempt ${a}/${MAX}`); return text; }
-    console.warn(`Attempt ${a}/${MAX}: ClickHouse query failed (memory limit). ` + (a < MAX ? `Waiting ${WAIT_MS/1000}s before retry…` : 'No attempts left.'));
+    const errored = /MEMORY_LIMIT|OvercommitTracker|status:failed|class java\.sql\.SQLException/i.test(head)
+                 || text.split('\n').length < 3;
+    // Approx CSV row count (header excluded) — catches a truncated/partial response
+    // that returned HTTP 200 cleanly but with far fewer rows than expected.
+    const rowCount = errored ? 0 : (text.split('\n').filter(l => l.trim()).length - 1);
+    if (!errored && rowCount >= minRows) {
+      if (a > 1) console.log(`Query OK on attempt ${a}/${MAX} (${rowCount} rows)`);
+      return text;
+    }
+    const why = errored ? 'ClickHouse memory error'
+                        : `only ${rowCount} rows (expected >= ${minRows}) — response truncated`;
+    console.warn(`Attempt ${a}/${MAX}: ${why}. ` + (a < MAX ? `Waiting ${WAIT_MS/1000}s before retry…` : 'No attempts left.'));
     if (a < MAX) await new Promise(r => setTimeout(r, WAIT_MS));
   }
-  throw new Error('Query failed on all attempts (ClickHouse MEMORY_LIMIT_EXCEEDED). Re-run later.');
+  throw new Error(`Query did not return a complete result after ${MAX} attempts (memory limit or truncation). Re-run later.`);
 }
 function parseCSVLine(line) {
     const result = [];
@@ -355,7 +363,15 @@ async function main() {
 
   // Card 12025 has no date parameter, so we fetch it in one shot (same as the tracker
   // dashboard) and retry on the intermittent ClickHouse/ETIMEDOUT failures.
-  const text = await fetchDatasetReliable(sessionToken);
+  // Detect truncated fetches by requiring at least ~85% of the last good row count.
+  let prevTotal = 0;
+  try {
+    const mf = JSON.parse(fs.readFileSync(path.join(path.dirname(OUT), 'data', 'manifest.json'), 'utf8'));
+    prevTotal = (mf.meta && mf.meta.total) || 0;
+  } catch (e) {}
+  const minRows = prevTotal ? Math.floor(prevTotal * 0.85) : 100000;
+  console.log(`[expect] previous total=${prevTotal || 'none'}, requiring >= ${minRows} rows`);
+  const text = await fetchDatasetReliable(sessionToken, minRows);
   console.log(`Fetched ${(text.length/1024/1024).toFixed(1)}MB in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 
   const lines   = text.split('\n');
