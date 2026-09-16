@@ -257,18 +257,38 @@ async function main() {
     const rejected  = rows.filter(r => ['QC Failed','Validation Failed'].includes(r.fs||'')).length;
     const pending   = rows.filter(r => r.cs === 'qc_unassigned' || r.cs === 'qc_inprogress').length;
 
-  const payload = {
-        rows,
-        lastSynced: new Date().toISOString(),
-        meta: { total: rows.length, delivered, rejected, pending,
-          e2eDiag: { withProcessedAt: _diag.withProcessed, fellBackToCreatedAt: _diag.fallback, sample: _diag.sample } },
-  };
+  // ── Split output by createdAt month (keeps every file well under GitHub's 100MB limit) ──
+  const OUTDIR = path.join(path.dirname(OUT), 'data');
+  // Remove the old monolithic data.json (now replaced by per-month files).
+  try { fs.rmSync(OUT, { force: true }); } catch (e) {}
+  fs.mkdirSync(OUTDIR, { recursive: true });
+  // Clear stale month files so months that dropped out of range don't linger.
+  try { for (const f of fs.readdirSync(OUTDIR)) if (/\.json$/.test(f)) fs.rmSync(path.join(OUTDIR, f)); } catch (e) {}
 
-  const json   = JSON.stringify(payload);
-    console.log(`Output: ${(json.length/1024/1024).toFixed(2)} MB`);
-    fs.mkdirSync(path.dirname(OUT), { recursive: true });
-    fs.writeFileSync(OUT, json);
-    console.log(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
+  const byMonth = {};
+  for (const r of rows){
+    const m = (r.c && typeof r.c === 'string' && r.c.length >= 7) ? r.c.slice(0, 7) : 'undated';
+    (byMonth[m] = byMonth[m] || []).push(r);
+  }
+  const realMonths = Object.keys(byMonth).filter(m => /^\d{4}-\d{2}$/.test(m)).sort().reverse();
+  const otherKeys  = Object.keys(byMonth).filter(m => !/^\d{4}-\d{2}$/.test(m));
+  const months = [...realMonths, ...otherKeys]; // real months newest-first, 'undated' last
+  const version = new Date().toISOString();
+  let totalBytes = 0;
+  for (const m of months){
+    const j = JSON.stringify({ month: m, rows: byMonth[m] });
+    totalBytes += j.length;
+    fs.writeFileSync(path.join(OUTDIR, m + '.json'), j);
+  }
+  const manifest = {
+    version, lastSynced: version, months,
+    meta: { total: rows.length, delivered, rejected, pending,
+      months: months.map(m => ({ month: m, count: byMonth[m].length })) },
+  };
+  fs.writeFileSync(path.join(OUTDIR, 'manifest.json'), JSON.stringify(manifest));
+  console.log(`Wrote ${months.length} month files, ${(totalBytes/1024/1024).toFixed(2)} MB total`);
+  console.log(`Months: ${months.join(', ')}`);
+  console.log(`Done in ${((Date.now()-t0)/1000).toFixed(1)}s`);
 }
 
 main().catch(err => { console.error('Failed:', err.message); process.exit(1); });
